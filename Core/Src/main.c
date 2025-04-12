@@ -52,7 +52,16 @@ uint8_t flag = 0;			//Variable to store the button flag
 uint8_t flag_rx = 0;			//Variable to store the reception flag
 uint8_t spi_tx[2] = {0x8F, 0x00};
 uint8_t spi_rx[2] = {0x00, 0x00};
-uint8_t spi_en[2] = {0x20, 0x47};
+uint8_t mem_ctrl4[2] = {0x20, 0x67};
+uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t axis_baddr[7] = {0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0x00};
+uint8_t status[2] = {0xA7, 0x00};
+uint8_t status_buf[2] = {0x00, 0x00};
+uint8_t base_x[2] = {0xA9, 0x00};
+uint8_t test[2] = {0x00, 0x00};
+int16_t xdata;
+int16_t ydata;
+int16_t zdata;
 
 //extern the USB handler
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -64,8 +73,9 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
-void MEMS_Write(uint8_t address, uint8_t data);
-void MEMS_Read(uint8_t address, uint8_t *data);
+void accelRead(uint8_t *addr, uint8_t *data, uint16_t size);
+void accelWrite(uint8_t *reg_config);
+void accelInit(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -111,6 +121,7 @@ int main(void)
   }
 
 
+  accelInit();
 
 
   /* USER CODE END 2 */
@@ -121,21 +132,53 @@ int main(void)
   {
 	  spi_rx[0] = 0;
 	  spi_rx[1] = 0;
-	  //CS Pin
-	  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
+	  //checking WHO_AM_I
+	  accelRead(spi_tx, spi_rx ,2);
 
-	  HAL_SPI_TransmitReceive(&hspi1, spi_tx, spi_rx, 2, 10000);
+//	  HAL_Delay(1000);
 
-	  while(HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+	  //check low x
+	  accelRead(base_x, test, 2);
 
-	  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
+//	  HAL_Delay(1000);
 
-	  if(spi_rx[1] == 0x3F){
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, SET);
-		  HAL_Delay(1000);
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, RESET);
-		  HAL_Delay(1000);
+
+	  //checking status
+	  accelRead(status, status_buf, 2);
+
+//	  HAL_Delay(1000);
+
+
+	  //check for new data
+	  accelRead(axis_baddr, axis_data, 7);
+	  xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
+	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
+	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
+
+	  if(xdata > 1000){
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, SET);
+	  }else{
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, RESET);
 	  }
+
+	  if(ydata > 1000){
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, SET);
+	  }else{
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, RESET);
+	  }
+
+	  if(zdata > 1000){
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, SET);
+	  }else{
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, RESET);
+	  }
+
+//	  if(spi_rx[1] == 0x3F){
+//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, SET);
+//		  HAL_Delay(1000);
+//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, RESET);
+//		  HAL_Delay(1000);
+//	  }
 
 	  if (flag_rx == 1)
 	  {
@@ -304,6 +347,33 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void accelRead(uint8_t *addr, uint8_t *data, uint16_t size)
+{
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
+
+	HAL_SPI_TransmitReceive(&hspi1, addr, data, size, 10000);
+
+	while(HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
+}
+
+void accelWrite(uint8_t *reg_config)
+{
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
+
+	HAL_SPI_Transmit(&hspi1, reg_config, 2, 10000);
+
+	while(HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
+}
+
+
+void accelInit(void)
+{
+	accelWrite(mem_ctrl4);
+}
 
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)

@@ -1,6 +1,9 @@
-../Core/Src/main.c:80:5:main	24	static
-../Core/Src/main.c:177:6:SystemClock_Config	88	static
-../Core/Src/main.c:223:13:MX_SPI1_Init	8	static
-../Core/Src/main.c:261:13:MX_GPIO_Init	48	static
-../Core/Src/main.c:309:6:HAL_GPIO_EXTI_Callback	16	static
-../Core/Src/main.c:320:6:Error_Handler	4	static,ignoring_inline_asm
+../Core/Src/main.c:90:5:main	16	static
+../Core/Src/main.c:220:6:SystemClock_Config	88	static
+../Core/Src/main.c:266:13:MX_SPI1_Init	8	static
+../Core/Src/main.c:304:13:MX_GPIO_Init	48	static
+../Core/Src/main.c:350:6:accelRead	32	static
+../Core/Src/main.c:361:6:accelWrite	16	static
+../Core/Src/main.c:373:6:accelInit	8	static
+../Core/Src/main.c:379:6:HAL_GPIO_EXTI_Callback	16	static
+../Core/Src/main.c:390:6:Error_Handler	4	static,ignoring_inline_asm
