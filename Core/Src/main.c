@@ -20,6 +20,8 @@
 #include "main.h"
 #include "usb_device.h"
 #include "usbd_customhid.h"
+#include "stm32f4xx.h"
+#include <stdio.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -33,6 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define NUM_SAMPLES		100
 
 
 /* USER CODE END PD */
@@ -53,6 +56,7 @@ uint8_t flag_rx = 0;			//Variable to store the reception flag
 uint8_t spi_tx[2] = {0x8F, 0x00};
 uint8_t spi_rx[2] = {0x00, 0x00};
 uint8_t mem_ctrl4[2] = {0x20, 0x67};
+uint8_t mem_ctrl5[2] = {0x24, 0x48};
 uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 uint8_t axis_baddr[7] = {0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0x00};
 uint8_t status[2] = {0xA7, 0x00};
@@ -62,6 +66,10 @@ uint8_t test[2] = {0x00, 0x00};
 int16_t xdata;
 int16_t ydata;
 int16_t zdata;
+int16_t xdata_avg;
+int16_t ydata_avg;
+int16_t zdata_avg;
+uint8_t report[5];
 
 //extern the USB handler
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -80,6 +88,10 @@ void accelInit(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int __io_putchar(int ch){
+	  ITM_SendChar(ch);
+	  return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -149,11 +161,16 @@ int main(void)
 //	  HAL_Delay(1000);
 
 
-	  //check for new data
+	  //check for new data and running avg
 	  accelRead(axis_baddr, axis_data, 7);
 	  xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
 	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
 	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
+
+//	  xdata_avg = (int16_t) xdata/NUM_SAMPLES;
+//	  ydata_avg = (int16_t) ydata/NUM_SAMPLES;
+//	  zdata_avg = (int16_t) zdata/NUM_SAMPLES;
+	  printf("x, y ,z: %d %d %d\n", xdata, ydata, zdata);
 
 	  if(xdata > 1000){
 		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, SET);
@@ -180,32 +197,45 @@ int main(void)
 //		  HAL_Delay(1000);
 //	  }
 
-	  if (flag_rx == 1)
-	  {
-	  //Check if the first byte of the report buffer equals 1
-	  if (report_buffer[0] == 1)
-	  {
-	//Turn the user LED on
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, SET);
-	  }
+	  // Example: left click, move +10 X, -5 Y
+	  report[0] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
+	  report[1] = axis_data[1];
+	  report[2] = axis_data[2];
+	  report[3] = axis_data[3];
+	  report[4] = axis_data[4];
+//	  report[1] = (uint8_t)(xdata_avg & 0x00FF);   // X LSB
+//	  report[2] = (uint8_t)((xdata_avg & 0xFF00) >> 8);     // X MSB
+//	  report[3] = (uint8_t)(ydata_avg & 0x00FF); // Y LSB
+//	  report[4] = (uint8_t)((ydata_avg & 0xFF00) >> 8);   // Y MSB
 
-	  //Check if the first byte of the report buffer equals 2
-	  else if (report_buffer[0] == 2)
-	  {
-	//Turn the user LED off
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, RESET);
-	  }
+	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
 
-	  flag_rx = 0;
-	  }
-
-	  //To send the output data when the button is pressed
-	  if (flag==1)
-	  {
-	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, tx_buffer, 64);
-
-	  flag = 0;
-	  }
+//	  if (flag_rx == 1)
+//	  {
+//	  //Check if the first byte of the report buffer equals 1
+//	  if (report_buffer[0] == 1)
+//	  {
+//	//Turn the user LED on
+//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, SET);
+//	  }
+//
+//	  //Check if the first byte of the report buffer equals 2
+//	  else if (report_buffer[0] == 2)
+//	  {
+//	//Turn the user LED off
+//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, RESET);
+//	  }
+//
+//	  flag_rx = 0;
+//	  }
+//
+//	  //To send the output data when the button is pressed
+//	  if (flag==1)
+//	  {
+//	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, tx_buffer, 64);
+//
+//	  flag = 0;
+//	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -313,14 +343,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PA0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PD12 PD13 PD14 PD15 */
@@ -331,8 +364,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+//  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+//  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   GPIO_InitStruct.Pin = GPIO_PIN_3;
@@ -342,6 +375,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF0_SWJ;  // SWO is part of debug port
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
@@ -373,12 +413,13 @@ void accelWrite(uint8_t *reg_config)
 void accelInit(void)
 {
 	accelWrite(mem_ctrl4);
+	accelWrite(mem_ctrl5);
 }
 
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	flag = 1;
+	flag ^= 1;
 }
 
 /* USER CODE END 4 */

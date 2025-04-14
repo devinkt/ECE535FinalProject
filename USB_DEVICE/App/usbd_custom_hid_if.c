@@ -93,24 +93,49 @@ extern uint8_t flag_rx;
   /* USER CODE BEGIN 0 */
 __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DESC_SIZE] __ALIGN_END =
 {
-		/* USER CODE BEGIN 0 */
-		0x06, 0x00, 0xff, // Usage Page(Undefined )
-		0x09, 0x01, // USAGE (Undefined)
-		0xa1, 0x01, // COLLECTION (Application)
-		0x15, 0x00, // LOGICAL_MINIMUM (0)
-		0x26, 0xff, 0x00, // LOGICAL_MAXIMUM (255)
-		0x75, 0x08, // REPORT_SIZE (8)
-		0x95, 0x40, // REPORT_COUNT (64)
-		0x09, 0x01, // USAGE (Undefined)
-		0x81, 0x02, // INPUT (Data,Var,Abs)
-		0x95, 0x40, // REPORT_COUNT (64)
-		0x09, 0x01, // USAGE (Undefined)
-		0x91, 0x02, // OUTPUT (Data,Var,Abs)
-		0x95, 0x01, // REPORT_COUNT (1)
-		0x09, 0x01, // USAGE (Undefined)
-		0xb1, 0x02, // FEATURE (Data,Var,Abs)
-  /* USER CODE END 0 */
-		0xC0    /*     END_COLLECTION	             */
+		 0x05, 0x01,       // Usage Page (Generic Desktop)
+		  0x09, 0x02,       // Usage (Mouse)
+		  0xA1, 0x01,       // Collection (Application)
+		    0x09, 0x01,     //   Usage (Pointer)
+		    0xA1, 0x00,     //   Collection (Physical)
+		      0x05, 0x09,   //     Usage Page (Button)
+		      0x19, 0x01,   //     Usage Minimum (1)
+		      0x29, 0x01,   //     Usage Maximum (1)
+		      0x95, 0x01,   //     Report Count (1)
+		      0x75, 0x01,   //     Report Size (1)
+		      0x81, 0x02,   //     Input (Data,Var,Abs)
+		      0x95, 0x01,   //     Report Count (1)
+		      0x75, 0x07,   //     Report Size (7)
+		      0x81, 0x01,   //     Input (Const,Array,Abs)
+		      0x05, 0x01,   //     Usage Page (Generic Desktop)
+		      0x09, 0x30,   //     Usage (X)
+		      0x09, 0x31,   //     Usage (Y)
+		      0x16, 0x01, 0x80, // Logical Minimum (-32767)
+		      0x26, 0xFF, 0x7F, // Logical Maximum (32767)
+		      0x75, 0x10,   //     Report Size (16)
+		      0x95, 0x02,   //     Report Count (2)
+		      0x81, 0x06,   //     Input (Data,Var,Rel)
+		    0xC0,           //   End Collection
+		  0xC0              // End Collection
+//		/* USER CODE BEGIN 0 */
+//		0x06, 0x00, 0xff, // Usage Page(Undefined )
+//		0x09, 0x01, // USAGE (Undefined)
+//		0xa1, 0x01, // COLLECTION (Application)
+//		0x15, 0x00, // LOGICAL_MINIMUM (0)
+//		0x26, 0xff, 0x00, // LOGICAL_MAXIMUM (255)
+//		0x75, 0x08, // REPORT_SIZE (8)
+//		0x95, 0x40, // REPORT_COUNT (64)
+//		0x09, 0x01, // USAGE (Undefined)
+//		0x81, 0x02, // INPUT (Data,Var,Abs)
+//		0x95, 0x40, // REPORT_COUNT (64)
+//		0x09, 0x01, // USAGE (Undefined)
+//		0x91, 0x02, // OUTPUT (Data,Var,Abs)
+//		0x95, 0x01, // REPORT_COUNT (1)
+//		0x09, 0x01, // USAGE (Undefined)
+//		0xb1, 0x02, // FEATURE (Data,Var,Abs)
+//  /* USER CODE END 0 */
+//		0xC0    /*     END_COLLECTION	             */
+
 };
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
@@ -202,9 +227,9 @@ static int8_t CUSTOM_HID_OutEvent_FS(uint8_t* state)
 //    return -1;
 //  }
 	//To copy the reception buffer into the report_buffer variable
-	memcpy(report_buffer, state, 64);
-
-	flag_rx = 1;
+//	memcpy(report_buffer, state, 64);
+//
+//	flag_rx = 1;
 
   return (USBD_OK);
   /* USER CODE END 6 */
