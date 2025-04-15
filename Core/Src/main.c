@@ -36,6 +36,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define NUM_SAMPLES		100
+#define ZYXDA_BIT 0x08
+
+
 
 
 /* USER CODE END PD */
@@ -56,8 +59,10 @@ uint8_t flag_rx = 0;			//Variable to store the reception flag
 uint8_t spi_tx[2] = {0x8F, 0x00};
 uint8_t spi_rx[2] = {0x00, 0x00};
 uint8_t mem_ctrl4[2] = {0x20, 0x67};
-uint8_t mem_ctrl5[2] = {0x24, 0x48};
+uint8_t mem_ctrl5[2] = {0x24, 0x60};
 uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t prev_axis_data[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t prev_filter1_data[4] = {0x00, 0x00, 0x00, 0x00};
 uint8_t axis_baddr[7] = {0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0x00};
 uint8_t status[2] = {0xA7, 0x00};
 uint8_t status_buf[2] = {0x00, 0x00};
@@ -70,6 +75,17 @@ int16_t xdata_avg;
 int16_t ydata_avg;
 int16_t zdata_avg;
 uint8_t report[5];
+int8_t x_lo = 0;
+int8_t y_lo = 0;
+int16_t min_xval;
+int16_t max_xval;
+int16_t min_yval;
+int16_t max_yval;
+int16_t newxval;
+int16_t newyval;
+int16_t procxout;
+int16_t procyout;
+
 
 //extern the USB handler
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -135,6 +151,17 @@ int main(void)
 
   accelInit();
 
+  for(int i = 0; i < 50; i ++){
+	  accelRead(axis_baddr, axis_data, 7);
+	  xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
+	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
+	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
+	  min_xval = MIN(min_xval, xdata);
+	  max_xval = MAX(max_xval, xdata);
+	  min_yval = MIN(min_yval, ydata);
+	  max_yval = MAX(max_yval, ydata);
+	  HAL_Delay(100);
+  }
 
   /* USER CODE END 2 */
 
@@ -156,7 +183,9 @@ int main(void)
 
 
 	  //checking status
-	  accelRead(status, status_buf, 2);
+	  while((status_buf[1] & ZYXDA_BIT) == 0){
+		  accelRead(status, status_buf, 2);
+	  }
 
 //	  HAL_Delay(1000);
 
@@ -167,10 +196,62 @@ int main(void)
 	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
 	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
 
+	  if(xdata < min_xval) newxval = xdata - min_xval;
+	  if(xdata > max_xval) newxval = xdata - max_xval;
+
+	  if(ydata < min_yval) newyval = ydata - min_yval;
+	  if(ydata > max_yval) newyval = ydata - max_yval;
+
+	  newxval = newxval/100;
+	  newyval = newyval/100;
+
 //	  xdata_avg = (int16_t) xdata/NUM_SAMPLES;
 //	  ydata_avg = (int16_t) ydata/NUM_SAMPLES;
 //	  zdata_avg = (int16_t) zdata/NUM_SAMPLES;
+//	  int8_t filtered1x1 = (0.05 * axis_data[1]) + ((1 - 0.05) * prev_axis_data[0]);
+//	  int8_t filtered1x2 = (0.05 * axis_data[2]) + ((1 - 0.05) * prev_axis_data[1]);
+//	  int8_t filtered1y1 = (0.05 * axis_data[3]) + ((1 - 0.05) * prev_axis_data[2]);
+//	  int8_t filtered1y2 = (0.05 * axis_data[4]) + ((1 - 0.05) * prev_axis_data[3]);
+
+//	  int8_t filtered2x1 = abs(prev_filter1_data[0] - filtered1x1) < 100 ? 0 : (prev_filter1_data[0] - filtered1x1);
+//	  int8_t filtered2x2 = abs(prev_filter1_data[1] - filtered1x2) < 100 ? 0 : (prev_filter1_data[1] - filtered1x2);
+//	  int8_t filtered2y1 = abs(prev_filter1_data[2] - filtered1y1) < 100 ? 0 : (prev_filter1_data[2] - filtered1y1);
+//	  int8_t filtered2y2 = abs(prev_filter1_data[3] - filtered1y2) < 100 ? 0 : (prev_filter1_data[3] - filtered1y2);
+
+//	  float alpha = 0.05f;
+//
+//	  // Do the filter in float, store in int8_t after rounding/clipping
+//	  float fx1 = alpha * axis_data[1] + (1 - alpha) * prev_axis_data[0];
+//	  float fx2 = alpha * axis_data[2] + (1 - alpha) * prev_axis_data[1];
+//	  float fy1 = alpha * axis_data[3] + (1 - alpha) * prev_axis_data[2];
+//	  float fy2 = alpha * axis_data[4] + (1 - alpha) * prev_axis_data[3];
+//
+//	  int8_t filtered1x1 = (int8_t)fx1;
+//	  int8_t filtered1x2 = (int8_t)fx2;
+//	  int8_t filtered1y1 = (int8_t)fy1;
+//	  int8_t filtered1y2 = (int8_t)fy2;
+//
+//	  // Combine safely into 16-bit signed values
+//	  int16_t filtered1xdata = ((int16_t)(int8_t)filtered1x2 << 8) | ((uint8_t)filtered1x1);
+//	  int16_t filtered1ydata = ((int16_t)(int8_t)filtered1y2 << 8) | ((uint8_t)filtered1y1);
+
+
+
+
+
+//
+//	  int16_t filtered1xdata = ((int16_t) filtered1x2 << 8)| (int16_t) filtered1x1;
+//	  int16_t filtered1ydata = ((int16_t) filtered1y2 << 8)| (int16_t) filtered1y1;
+
+
+//	  int16_t filtered2xdata = ((int16_t) filtered2x2 << 8)| (int16_t) filtered2x1;
+//	  int16_t filtered2ydata = ((int16_t) filtered2y2 << 8)| (int16_t) filtered2y1;
+
+
 	  printf("x, y ,z: %d %d %d\n", xdata, ydata, zdata);
+	  printf("filt1x, filt1y: %d %d\n", newxval, newyval);
+//	  printf("filt2x, filt2y: %d %d\n", filtered2xdata, filtered2ydata);
+
 
 	  if(xdata > 1000){
 		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, SET);
@@ -199,16 +280,32 @@ int main(void)
 
 	  // Example: left click, move +10 X, -5 Y
 	  report[0] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
-	  report[1] = axis_data[1];
-	  report[2] = axis_data[2];
-	  report[3] = axis_data[3];
-	  report[4] = axis_data[4];
+	  report[1] = newxval & 0xFF; //LSB
+	  report[2] = ((newxval & 0xFF00)>>8); //MSB
+	  report[3] = newyval & 0xFF; //LSB
+	  report[4] = ((newyval & 0xFF00)>>8); //MSB
 //	  report[1] = (uint8_t)(xdata_avg & 0x00FF);   // X LSB
 //	  report[2] = (uint8_t)((xdata_avg & 0xFF00) >> 8);     // X MSB
 //	  report[3] = (uint8_t)(ydata_avg & 0x00FF); // Y LSB
 //	  report[4] = (uint8_t)((ydata_avg & 0xFF00) >> 8);   // Y MSB
 
+	  x_lo += 1;
+	  y_lo += 1;
+	  HAL_Delay(10);
 	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
+	  HAL_Delay(10);
+
+	  prev_axis_data[0] = axis_data[1];
+	  prev_axis_data[1] = axis_data[2];
+	  prev_axis_data[2] = axis_data[3];
+	  prev_axis_data[3] = axis_data[4];
+	  prev_axis_data[4] = axis_data[5];
+	  prev_axis_data[5] = axis_data[6];
+
+//	  prev_filter1_data[0] = filtered1x1;
+//	  prev_filter1_data[1] = filtered1x2;
+//	  prev_filter1_data[2] = filtered1y1;
+//	  prev_filter1_data[3] = filtered1y2;
 
 //	  if (flag_rx == 1)
 //	  {
