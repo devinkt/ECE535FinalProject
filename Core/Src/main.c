@@ -19,26 +19,70 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "usb_device.h"
-#include "usbd_customhid.h"
-#include "stm32f4xx.h"
-#include <stdio.h>
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "usbd_customhid.h"
+#include "stm32f4xx.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef struct {
+	int16_t min_xval;
+	int16_t max_xval;
+	int16_t min_yval;
+	int16_t max_yval;
+}calibValues;
+
+typedef struct {
+	int16_t xdata;
+	int16_t ydata;
+	int16_t zdata;
+}accelValues;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define NUM_SAMPLES		100
-#define ZYXDA_BIT 0x08
 
+#define CALIB_CYCLES	50
+#define SAMPLE_DELAY    100
+#define SCALING			100
 
+#define ZYXDA_BIT 		0x08       //XYZ data available
+
+#define READ			0x80
+#define WRITE			0x0
+
+#define CTRL_REG4 		0x20	   //Sensor CTRL_REG4 base address
+#define ODR				0x6		   //100Hz output data rate
+#define BDU				0x0		   //Block data update continuous
+#define AXIS_EN			0x7        //X,Y,Z axis enabled
+#define CTRL_REG4_CFG   (ODR << 4)|(BDU << 3)|(AXIS_EN)
+
+#define CTRL_REG5		0x24
+#define BW				0x3		   //50Hz bandwidth anti-aliasing filter
+#define GSCALE			0x4		   //+/- 16g scale
+#define ST				0x0		   //self test
+#define SPI_MODE 		0x0        //4-wire mode
+#define CTRL_REG5_CFG   (BW << 6)|(GSCALE << 3)|(ST << 1)|(SPI_MODE)
+
+#define OUT_X_LO		0x28
+#define OUT_X_HI		0x29
+#define OUT_Y_LO		0x2A
+#define OUT_Y_HI		0x2B
+#define OUT_Z_LO		0x2C
+#define OUT_Z_HI		0x2D
+
+#define STATUS			0x27
+
+#define WHO_AM_I		0x0F
+#define SENSOR_ID		0x3F
 
 
 /* USER CODE END PD */
@@ -52,40 +96,7 @@
 SPI_HandleTypeDef hspi1;
 
 /* USER CODE BEGIN PV */
-uint8_t tx_buffer[64];		//Variable to store the output data
-uint8_t report_buffer[64];		//Variable to receive the report buffer
 uint8_t flag = 0;			//Variable to store the button flag
-uint8_t flag_rx = 0;			//Variable to store the reception flag
-uint8_t spi_tx[2] = {0x8F, 0x00};
-uint8_t spi_rx[2] = {0x00, 0x00};
-uint8_t mem_ctrl4[2] = {0x20, 0x67};
-uint8_t mem_ctrl5[2] = {0x24, 0x60};
-uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint8_t prev_axis_data[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint8_t prev_filter1_data[4] = {0x00, 0x00, 0x00, 0x00};
-uint8_t axis_baddr[7] = {0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0x00};
-uint8_t status[2] = {0xA7, 0x00};
-uint8_t status_buf[2] = {0x00, 0x00};
-uint8_t base_x[2] = {0xA9, 0x00};
-uint8_t test[2] = {0x00, 0x00};
-int16_t xdata;
-int16_t ydata;
-int16_t zdata;
-int16_t xdata_avg;
-int16_t ydata_avg;
-int16_t zdata_avg;
-uint8_t report[5];
-int8_t x_lo = 0;
-int8_t y_lo = 0;
-int16_t min_xval;
-int16_t max_xval;
-int16_t min_yval;
-int16_t max_yval;
-int16_t newxval;
-int16_t newyval;
-int16_t procxout;
-int16_t procyout;
-
 
 //extern the USB handler
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -100,6 +111,9 @@ static void MX_SPI1_Init(void);
 void accelRead(uint8_t *addr, uint8_t *data, uint16_t size);
 void accelWrite(uint8_t *reg_config);
 void accelInit(void);
+calibValues accelCalib(uint32_t cycles, uint32_t sample_time);
+accelValues accelGetData(calibValues cv, int32_t scaling);
+void sendHIDReport(accelValues av);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -119,6 +133,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  uint8_t sensor_id[2] = {(WHO_AM_I|READ), 0x00};
+  uint8_t sensor_id_r[2] = {0x00, 0x00};
 
   /* USER CODE END 1 */
 
@@ -143,25 +159,18 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-  for (uint8_t i=0; i<64; i++)
-  {
-	  tx_buffer[i] = i;
-  }
 
-
+  /*Initialize sensor*/
   accelInit();
 
-  for(int i = 0; i < 50; i ++){
-	  accelRead(axis_baddr, axis_data, 7);
-	  xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
-	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
-	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
-	  min_xval = MIN(min_xval, xdata);
-	  max_xval = MAX(max_xval, xdata);
-	  min_yval = MIN(min_yval, ydata);
-	  max_yval = MAX(max_yval, ydata);
-	  HAL_Delay(100);
+  /*checking WHO_AM_I Sensor ID*/
+  accelRead(sensor_id, sensor_id_r , 2);
+  if(sensor_id_r[1] != SENSOR_ID){
+	  printf("Error: cannot connect to sensor");
   }
+
+  /*Calibrate Sensor Min and Max Values*/
+  calibValues cv = accelCalib(CALIB_CYCLES, SAMPLE_DELAY);
 
   /* USER CODE END 2 */
 
@@ -169,170 +178,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  spi_rx[0] = 0;
-	  spi_rx[1] = 0;
-	  //checking WHO_AM_I
-	  accelRead(spi_tx, spi_rx ,2);
 
-//	  HAL_Delay(1000);
+	  accelValues av = accelGetData(cv, SCALING);
 
-	  //check low x
-	  accelRead(base_x, test, 2);
+	  sendHIDReport(av);
 
-//	  HAL_Delay(1000);
-
-
-	  //checking status
-	  while((status_buf[1] & ZYXDA_BIT) == 0){
-		  accelRead(status, status_buf, 2);
-	  }
-
-//	  HAL_Delay(1000);
-
-
-	  //check for new data and running avg
-	  accelRead(axis_baddr, axis_data, 7);
-	  xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
-	  ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
-	  zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
-
-	  if(xdata < min_xval) newxval = xdata - min_xval;
-	  if(xdata > max_xval) newxval = xdata - max_xval;
-
-	  if(ydata < min_yval) newyval = ydata - min_yval;
-	  if(ydata > max_yval) newyval = ydata - max_yval;
-
-	  newxval = newxval/100;
-	  newyval = newyval/100;
-
-//	  xdata_avg = (int16_t) xdata/NUM_SAMPLES;
-//	  ydata_avg = (int16_t) ydata/NUM_SAMPLES;
-//	  zdata_avg = (int16_t) zdata/NUM_SAMPLES;
-//	  int8_t filtered1x1 = (0.05 * axis_data[1]) + ((1 - 0.05) * prev_axis_data[0]);
-//	  int8_t filtered1x2 = (0.05 * axis_data[2]) + ((1 - 0.05) * prev_axis_data[1]);
-//	  int8_t filtered1y1 = (0.05 * axis_data[3]) + ((1 - 0.05) * prev_axis_data[2]);
-//	  int8_t filtered1y2 = (0.05 * axis_data[4]) + ((1 - 0.05) * prev_axis_data[3]);
-
-//	  int8_t filtered2x1 = abs(prev_filter1_data[0] - filtered1x1) < 100 ? 0 : (prev_filter1_data[0] - filtered1x1);
-//	  int8_t filtered2x2 = abs(prev_filter1_data[1] - filtered1x2) < 100 ? 0 : (prev_filter1_data[1] - filtered1x2);
-//	  int8_t filtered2y1 = abs(prev_filter1_data[2] - filtered1y1) < 100 ? 0 : (prev_filter1_data[2] - filtered1y1);
-//	  int8_t filtered2y2 = abs(prev_filter1_data[3] - filtered1y2) < 100 ? 0 : (prev_filter1_data[3] - filtered1y2);
-
-//	  float alpha = 0.05f;
-//
-//	  // Do the filter in float, store in int8_t after rounding/clipping
-//	  float fx1 = alpha * axis_data[1] + (1 - alpha) * prev_axis_data[0];
-//	  float fx2 = alpha * axis_data[2] + (1 - alpha) * prev_axis_data[1];
-//	  float fy1 = alpha * axis_data[3] + (1 - alpha) * prev_axis_data[2];
-//	  float fy2 = alpha * axis_data[4] + (1 - alpha) * prev_axis_data[3];
-//
-//	  int8_t filtered1x1 = (int8_t)fx1;
-//	  int8_t filtered1x2 = (int8_t)fx2;
-//	  int8_t filtered1y1 = (int8_t)fy1;
-//	  int8_t filtered1y2 = (int8_t)fy2;
-//
-//	  // Combine safely into 16-bit signed values
-//	  int16_t filtered1xdata = ((int16_t)(int8_t)filtered1x2 << 8) | ((uint8_t)filtered1x1);
-//	  int16_t filtered1ydata = ((int16_t)(int8_t)filtered1y2 << 8) | ((uint8_t)filtered1y1);
-
-
-
-
-
-//
-//	  int16_t filtered1xdata = ((int16_t) filtered1x2 << 8)| (int16_t) filtered1x1;
-//	  int16_t filtered1ydata = ((int16_t) filtered1y2 << 8)| (int16_t) filtered1y1;
-
-
-//	  int16_t filtered2xdata = ((int16_t) filtered2x2 << 8)| (int16_t) filtered2x1;
-//	  int16_t filtered2ydata = ((int16_t) filtered2y2 << 8)| (int16_t) filtered2y1;
-
-
-	  printf("x, y ,z: %d %d %d\n", xdata, ydata, zdata);
-	  printf("filt1x, filt1y: %d %d\n", newxval, newyval);
-//	  printf("filt2x, filt2y: %d %d\n", filtered2xdata, filtered2ydata);
-
-
-	  if(xdata > 1000){
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, SET);
-	  }else{
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, RESET);
-	  }
-
-	  if(ydata > 1000){
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, SET);
-	  }else{
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, RESET);
-	  }
-
-	  if(zdata > 1000){
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, SET);
-	  }else{
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, RESET);
-	  }
-
-//	  if(spi_rx[1] == 0x3F){
-//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, SET);
-//		  HAL_Delay(1000);
-//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, RESET);
-//		  HAL_Delay(1000);
-//	  }
-
-	  // Example: left click, move +10 X, -5 Y
-	  report[0] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
-	  report[1] = newxval & 0xFF; //LSB
-	  report[2] = ((newxval & 0xFF00)>>8); //MSB
-	  report[3] = newyval & 0xFF; //LSB
-	  report[4] = ((newyval & 0xFF00)>>8); //MSB
-//	  report[1] = (uint8_t)(xdata_avg & 0x00FF);   // X LSB
-//	  report[2] = (uint8_t)((xdata_avg & 0xFF00) >> 8);     // X MSB
-//	  report[3] = (uint8_t)(ydata_avg & 0x00FF); // Y LSB
-//	  report[4] = (uint8_t)((ydata_avg & 0xFF00) >> 8);   // Y MSB
-
-	  x_lo += 1;
-	  y_lo += 1;
-	  HAL_Delay(10);
-	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
-	  HAL_Delay(10);
-
-	  prev_axis_data[0] = axis_data[1];
-	  prev_axis_data[1] = axis_data[2];
-	  prev_axis_data[2] = axis_data[3];
-	  prev_axis_data[3] = axis_data[4];
-	  prev_axis_data[4] = axis_data[5];
-	  prev_axis_data[5] = axis_data[6];
-
-//	  prev_filter1_data[0] = filtered1x1;
-//	  prev_filter1_data[1] = filtered1x2;
-//	  prev_filter1_data[2] = filtered1y1;
-//	  prev_filter1_data[3] = filtered1y2;
-
-//	  if (flag_rx == 1)
-//	  {
-//	  //Check if the first byte of the report buffer equals 1
-//	  if (report_buffer[0] == 1)
-//	  {
-//	//Turn the user LED on
-//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, SET);
-//	  }
-//
-//	  //Check if the first byte of the report buffer equals 2
-//	  else if (report_buffer[0] == 2)
-//	  {
-//	//Turn the user LED off
-//		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, RESET);
-//	  }
-//
-//	  flag_rx = 0;
-//	  }
-//
-//	  //To send the output data when the button is pressed
-//	  if (flag==1)
-//	  {
-//	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, tx_buffer, 64);
-//
-//	  flag = 0;
-//	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -506,13 +356,100 @@ void accelWrite(uint8_t *reg_config)
 	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
 }
 
-
 void accelInit(void)
 {
+	uint8_t mem_ctrl4[2] = {CTRL_REG4, CTRL_REG4_CFG};
+	uint8_t mem_ctrl5[2] = {CTRL_REG5, CTRL_REG5_CFG};
 	accelWrite(mem_ctrl4);
 	accelWrite(mem_ctrl5);
 }
 
+calibValues accelCalib(uint32_t cycles, uint32_t sample_time)
+{
+	calibValues cv;
+	cv.max_xval = 0, cv.max_yval = 0, cv.min_xval = 0, cv.min_yval = 0;
+	uint8_t axis_baddr[7] = {(OUT_X_LO|READ), (OUT_X_HI|READ), (OUT_Y_LO|READ),
+			(OUT_Y_HI|READ), (OUT_Z_LO|READ), (OUT_Z_HI|READ), 0x00};
+	uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+	for(int i = 0; i < cycles; i ++){
+		accelRead(axis_baddr, axis_data, 7);
+	    cv.min_xval = MIN(cv.min_xval, (((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1]));
+	    cv.max_xval = MAX(cv.max_xval, (((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1]));
+	    cv.min_yval = MIN(cv.min_yval, (((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3]));
+	    cv.max_yval = MAX(cv.max_yval, (((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3]));
+	    HAL_Delay(sample_time);
+	}
+	return cv;
+}
+
+accelValues accelGetData(calibValues cv, int32_t scaling)
+{
+	accelValues av;
+	uint8_t status[2] = {(STATUS|READ), 0x00};
+	uint8_t status_buf[2] = {0x00, 0x00};
+	uint8_t axis_baddr[7] = {(OUT_X_LO|READ), (OUT_X_HI|READ), (OUT_Y_LO|READ),
+			(OUT_Y_HI|READ), (OUT_Z_LO|READ), (OUT_Z_HI|READ), 0x00};
+	uint8_t axis_data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+	/*poll status*/
+	while((status_buf[1] & ZYXDA_BIT) == 0){
+		accelRead(status, status_buf, 2);
+	}
+
+	  //check for new data and running avg
+	accelRead(axis_baddr, axis_data, 7);
+	av.xdata = ((int16_t) axis_data[2] << 8)| (int16_t) axis_data[1];
+	av.ydata = ((int16_t) axis_data[4] << 8)| (int16_t) axis_data[3];
+	av.zdata = ((int16_t) axis_data[6] << 8)| (int16_t) axis_data[5];
+
+	if(av.xdata < cv.min_xval) av.xdata = av.xdata - cv.min_xval;
+	if(av.xdata > cv.max_xval) av.xdata = av.xdata - cv.max_xval;
+
+	if(av.ydata < cv.min_yval) av.ydata = av.ydata - cv.min_yval;
+	if(av.ydata > cv.max_yval) av.ydata = av.ydata - cv.max_yval;
+
+	av.xdata = av.xdata/scaling;
+	av.ydata = av.ydata/scaling;
+
+	printf("x, y ,z: %d %d %d\n", av.xdata, av.ydata, av.zdata);
+
+	if(av.xdata > 10){
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, SET);
+	}else{
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, RESET);
+	}
+
+	if(av.ydata > 10){
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, SET);
+	}else{
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, RESET);
+	}
+
+	if(av.zdata > 1000){
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, SET);
+	}else{
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, RESET);
+	}
+
+	return av;
+
+}
+
+void sendHIDReport(accelValues av)
+{
+	uint8_t report[5];
+
+	report[0] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
+	report[1] = av.xdata & 0xFF; //LSB
+	report[2] = ((av.xdata & 0xFF00)>>8); //MSB
+	report[3] = av.ydata & 0xFF; //LSB
+	report[4] = ((av.ydata & 0xFF00)>>8); //MSB
+
+	HAL_Delay(10);
+	USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
+	HAL_Delay(10);
+}
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
