@@ -52,12 +52,28 @@ typedef struct {
 
 #define CALIB_CYCLES	50
 #define SAMPLE_DELAY    100
-#define SCALING			100
+#define SCALING			500
 
 #define ZYXDA_BIT 		0x08       //XYZ data available
 
 #define READ			0x80
 #define WRITE			0x0
+
+#define CTRL_REG1		0x21
+#define SM1_PIN			0x0        //routed to INT1
+#define SM1_EN			0x1		   //SM1 enabled
+#define CTRL_REG1_CFG   (SM1_PIN << 3)|(SM1_EN)
+
+#define CTRL_REG3       0x23
+#define DR_EN			0x0
+#define IEA				0x1
+#define IEL				0x0
+#define INT2_EN			0x0
+#define INT1_EN			0x1
+#define VFILT			0x0
+#define STRT			0x0
+#define CTRL_REG3_CFG	((DR_EN << 7)|(IEA << 6)|(IEL << 5)|(INT2_EN << 4)\
+						|(INT1_EN << 3)|(VFILT << 2)|(STRT))
 
 #define CTRL_REG4 		0x20	   //Sensor CTRL_REG4 base address
 #define ODR				0x6		   //100Hz output data rate
@@ -67,10 +83,59 @@ typedef struct {
 
 #define CTRL_REG5		0x24
 #define BW				0x3		   //50Hz bandwidth anti-aliasing filter
-#define GSCALE			0x4		   //+/- 16g scale
+#define GSCALE			0x0		   //+/- 16g scale
 #define ST				0x0		   //self test
 #define SPI_MODE 		0x0        //4-wire mode
 #define CTRL_REG5_CFG   (BW << 6)|(GSCALE << 3)|(ST << 1)|(SPI_MODE)
+
+#define TIM3_1			0x51
+#define TIM3_1_VAL		0x64
+
+#define TIM1_1			0x54
+#define TIM1_1_VAL		0x10
+
+#define TIM2_1			0x52
+#define TIM2_1_VAL		0x1
+
+#define TIM4_1			0x50
+#define TIM4_1_VAL		0x2
+
+#define SETT1			0x5B
+#define SETT1_VAL		0x1
+
+#define OUTS1			0x5F
+
+#define THRS1_1			0x57
+#define THRS1_1VAL		0x4E
+
+#define THRS2_1			0x56
+#define THRS2_1VAL		0x4E
+
+#define MASK1_B			0x59
+#define MASK1_A			0x5A
+#define MASK_VAL		0xA8
+
+#define ST_1_BADDR		0x40
+/*Opcodes*/
+#define NOP				0x0
+#define TI1				0x1
+#define TI2				0x2
+#define TI3				0x3
+#define TI4				0x4
+#define GNTH1			0x5
+#define GNTH2			0x6
+#define LNTH1			0x7
+#define LNTH2			0x8
+#define GTTH1			0x9
+#define LLTH2			0xA
+#define GRTH1			0xB
+#define LRTH1			0xC
+#define GRTH2			0xD
+#define LRTH2			0xE
+#define NZERO			0xF
+/*commands*/
+#define CONT			0x11
+
 
 #define OUT_X_LO		0x28
 #define OUT_X_HI		0x29
@@ -114,6 +179,8 @@ void accelInit(void);
 calibValues accelCalib(uint32_t cycles, uint32_t sample_time);
 accelValues accelGetData(calibValues cv, int32_t scaling);
 void sendHIDReport(accelValues av);
+void accelSMInit(void);
+void accelSM1(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -162,6 +229,12 @@ int main(void)
 
   /*Initialize sensor*/
   accelInit();
+
+  /*Start SM*/
+  accelSM1();
+
+  /*Initialize SM*/
+  accelSMInit();
 
   /*checking WHO_AM_I Sensor ID*/
   accelRead(sensor_id, sensor_id_r , 2);
@@ -303,6 +376,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Interrupt Pin from LIS3DSH*/
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PD12 PD13 PD14 PD15 */
   GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -311,8 +390,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-//  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-//  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   GPIO_InitStruct.Pin = GPIO_PIN_3;
@@ -358,6 +437,7 @@ void accelWrite(uint8_t *reg_config)
 
 void accelInit(void)
 {
+	//take a look at ctrl reg 3
 	uint8_t mem_ctrl4[2] = {CTRL_REG4, CTRL_REG4_CFG};
 	uint8_t mem_ctrl5[2] = {CTRL_REG5, CTRL_REG5_CFG};
 	accelWrite(mem_ctrl4);
@@ -396,6 +476,7 @@ accelValues accelGetData(calibValues cv, int32_t scaling)
 	while((status_buf[1] & ZYXDA_BIT) == 0){
 		accelRead(status, status_buf, 2);
 	}
+	/*check status 7 to observe if reading rate is sufficient*/
 
 	  //check for new data and running avg
 	accelRead(axis_baddr, axis_data, 7);
@@ -451,9 +532,65 @@ void sendHIDReport(accelValues av)
 	HAL_Delay(10);
 }
 
+void accelSMInit(void)
+{
+	uint8_t mem_ctrl1[2] = {CTRL_REG1, CTRL_REG1_CFG};
+	uint8_t mem_ctrl3[2] = {CTRL_REG3, CTRL_REG3_CFG};
+	accelWrite(mem_ctrl1);
+	accelWrite(mem_ctrl3);
+}
+
+void accelSM1(void)
+{
+//	uint8_t tim3[2] = {TIM3_1, TIM3_1_VAL};
+//	uint8_t st1[2] = {ST_1_BADDR, TI3};
+//	uint8_t st2[2] = {ST_1_BADDR + 1, CONT};
+
+//	uint8_t thrs1_1[2] = {THRS1_1, THRS1_1VAL};
+//	uint8_t mask1_a[2] = {MASK1_A, MASK_VAL};
+//	uint8_t mask1_b[2] = {MASK1_B, MASK_VAL};
+//	uint8_t st1[2] = {ST_1_BADDR, GNTH1};
+//	uint8_t st2[2] = {ST_1_BADDR + 1, CONT};
+
+	uint8_t thrs1_1[2] = {THRS1_1, THRS1_1VAL};
+	uint8_t thrs2_1[2] = {THRS2_1, THRS2_1VAL};
+	uint8_t mask1_a[2] = {MASK1_A, MASK_VAL};
+	uint8_t mask1_b[2] = {MASK1_B, MASK_VAL};
+	uint8_t tim1[2] = {TIM1_1, TIM1_1_VAL};
+	uint8_t tim2[2] = {TIM2_1, TIM2_1_VAL};
+	uint8_t tim3[2] = {TIM3_1, TIM3_1_VAL};
+	uint8_t tim4[2] = {TIM4_1, TIM4_1_VAL};
+
+	uint8_t st1[2] = {ST_1_BADDR, (GNTH1 << 4)|TI1};
+	uint8_t st2[2] = {ST_1_BADDR + 1, (NOP << 4)|GNTH2};
+	uint8_t st3[2] = {ST_1_BADDR + 2, (TI2 << 4)|LNTH2};
+	uint8_t st4[2] = {ST_1_BADDR + 3, (NOP << 4)|TI4};
+	uint8_t st5[2] = {ST_1_BADDR + 4, CONT};
+
+	uint8_t sett1[2] = {SETT1, SETT1_VAL};
+	accelWrite(thrs1_1);
+	accelWrite(thrs2_1);
+	accelWrite(mask1_a);
+	accelWrite(mask1_b);
+	accelWrite(tim1);
+	accelWrite(tim2);
+	accelWrite(tim3);
+	accelWrite(tim4);
+	accelWrite(st1);
+	accelWrite(st2);
+	accelWrite(st3);
+	accelWrite(st4);
+	accelWrite(st5);
+	accelWrite(sett1);
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	flag ^= 1;
+	uint8_t outs1[2] = {OUTS1|READ, 0};
+	uint8_t outs1_buf[2] = {0, 0};
+	accelRead(outs1, outs1_buf, 2);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+
 }
 
 /* USER CODE END 4 */
