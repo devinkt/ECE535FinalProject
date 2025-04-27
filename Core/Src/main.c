@@ -162,6 +162,7 @@ SPI_HandleTypeDef hspi1;
 
 /* USER CODE BEGIN PV */
 uint8_t flag = 0;			//Variable to store the button flag
+volatile uint8_t space_pressed = 0;
 
 //extern the USB handler
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -255,6 +256,24 @@ int main(void)
 	  accelValues av = accelGetData(cv, SCALING);
 
 	  sendHIDReport(av);
+
+	  uint8_t report[9] = {0};
+	  report[0] = 0x02; //report id
+	  report[1] = 0x00;
+	  report[2] = 0x00;
+	  report[3] = space_pressed ? 0x2C : 0x00;
+	  report[4] = 0x00;
+	  report[5] = 0x00;
+	  report[6] = 0x00;
+	  report[7] = 0x00;
+	  report[8] = 0x00;
+
+	  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
+
+	  if (space_pressed)
+	  {
+		  space_pressed = 0;
+	  }
 
     /* USER CODE END WHILE */
 
@@ -519,13 +538,14 @@ accelValues accelGetData(calibValues cv, int32_t scaling)
 
 void sendHIDReport(accelValues av)
 {
-	uint8_t report[5];
+	uint8_t report[6];
 
-	report[0] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
-	report[1] = av.xdata & 0xFF; //LSB
-	report[2] = ((av.xdata & 0xFF00)>>8); //MSB
-	report[3] = av.ydata & 0xFF; //LSB
-	report[4] = ((av.ydata & 0xFF00)>>8); //MSB
+	report[0] = 0x01; //report id
+	report[1] = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);        // Button 1 pressed
+	report[2] = av.xdata & 0xFF; //LSB
+	report[3] = ((av.xdata & 0xFF00)>>8); //MSB
+	report[4] = av.ydata & 0xFF; //LSB
+	report[5] = ((av.ydata & 0xFF00)>>8); //MSB
 
 	HAL_Delay(10);
 	USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
@@ -590,6 +610,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	uint8_t outs1_buf[2] = {0, 0};
 	accelRead(outs1, outs1_buf, 2);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+
+	space_pressed = 1;
 
 }
 

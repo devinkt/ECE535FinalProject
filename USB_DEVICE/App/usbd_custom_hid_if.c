@@ -95,6 +95,7 @@ __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DES
 		 0x05, 0x01,       // Usage Page (Generic Desktop)
 		  0x09, 0x02,       // Usage (Mouse)
 		  0xA1, 0x01,       // Collection (Application)
+		    0x85, 0x01,     //Report ID 1
 		    0x09, 0x01,     //   Usage (Pointer)
 		    0xA1, 0x00,     //   Collection (Physical)
 		      0x05, 0x09,   //     Usage Page (Button)
@@ -114,26 +115,37 @@ __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DES
 		      0x75, 0x10,   //     Report Size (16)
 		      0x95, 0x02,   //     Report Count (2)
 		      0x81, 0x06,   //     Input (Data,Var,Rel)
+
 		    0xC0,           //   End Collection
+		0xC0,
+
+		// --- Keyboard report starts here ---
+				0x05, 0x01,   // Usage Page (Generic Desktop)
+				0x09, 0x06,   // Usage (Keyboard)
+				0xA1, 0x01,   // Collection (Application)
+				    0x85, 0x02,    //Report ID 2
+					0x05, 0x07,   // Usage Page (Keyboard/Keypad)
+					0x19, 0xE0,   // Usage Minimum (Left Control)
+					0x29, 0xE7,   // Usage Maximum (Right GUI)
+					0x15, 0x00,   // Logical Minimum (0)
+					0x25, 0x01,   // Logical Maximum (1)
+					0x75, 0x01,   // Report Size (1)
+					0x95, 0x08,   // Report Count (8)
+					0x81, 0x02,   // Input (Data,Var,Abs) Modifier byte
+
+					0x95, 0x01,   // Report Count (1)
+					0x75, 0x08,   // Report Size (8)
+					0x81, 0x01,   // Input (Constant) Reserved byte
+
+					0x95, 0x06,   // Report Count (6)
+					0x75, 0x08,   // Report Size (8)
+					0x15, 0x00,   // Logical Minimum (0)
+					0x25, 0x65,   // Logical Maximum (101)
+					0x05, 0x07,   // Usage Page (Keyboard/Keypad)
+					0x19, 0x00,   // Usage Minimum (0)
+					0x29, 0x65,   // Usage Maximum (101)
+					0x81, 0x00,   // Input (Data, Array)
 		  0xC0              // End Collection
-//		/* USER CODE BEGIN 0 */
-//		0x06, 0x00, 0xff, // Usage Page(Undefined )
-//		0x09, 0x01, // USAGE (Undefined)
-//		0xa1, 0x01, // COLLECTION (Application)
-//		0x15, 0x00, // LOGICAL_MINIMUM (0)
-//		0x26, 0xff, 0x00, // LOGICAL_MAXIMUM (255)
-//		0x75, 0x08, // REPORT_SIZE (8)
-//		0x95, 0x40, // REPORT_COUNT (64)
-//		0x09, 0x01, // USAGE (Undefined)
-//		0x81, 0x02, // INPUT (Data,Var,Abs)
-//		0x95, 0x40, // REPORT_COUNT (64)
-//		0x09, 0x01, // USAGE (Undefined)
-//		0x91, 0x02, // OUTPUT (Data,Var,Abs)
-//		0x95, 0x01, // REPORT_COUNT (1)
-//		0x09, 0x01, // USAGE (Undefined)
-//		0xb1, 0x02, // FEATURE (Data,Var,Abs)
-//  /* USER CODE END 0 */
-//		0xC0    /*     END_COLLECTION	             */
 
 };
 
