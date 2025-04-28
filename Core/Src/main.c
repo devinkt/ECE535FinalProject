@@ -562,16 +562,7 @@ void accelSMInit(void)
 
 void accelSM1(void)
 {
-//	uint8_t tim3[2] = {TIM3_1, TIM3_1_VAL};
-//	uint8_t st1[2] = {ST_1_BADDR, TI3};
-//	uint8_t st2[2] = {ST_1_BADDR + 1, CONT};
-
-//	uint8_t thrs1_1[2] = {THRS1_1, THRS1_1VAL};
-//	uint8_t mask1_a[2] = {MASK1_A, MASK_VAL};
-//	uint8_t mask1_b[2] = {MASK1_B, MASK_VAL};
-//	uint8_t st1[2] = {ST_1_BADDR, GNTH1};
-//	uint8_t st2[2] = {ST_1_BADDR + 1, CONT};
-
+	/*timer and threshold values for SM1*/
 	uint8_t thrs1_1[2] = {THRS1_1, THRS1_1VAL};
 	uint8_t thrs2_1[2] = {THRS2_1, THRS2_1VAL};
 	uint8_t mask1_a[2] = {MASK1_A, MASK_VAL};
@@ -581,13 +572,15 @@ void accelSM1(void)
 	uint8_t tim3[2] = {TIM3_1, TIM3_1_VAL};
 	uint8_t tim4[2] = {TIM4_1, TIM4_1_VAL};
 
+	/*timers, low and high thresholds for tap detection*/
 	uint8_t st1[2] = {ST_1_BADDR, (GNTH1 << 4)|TI1};
 	uint8_t st2[2] = {ST_1_BADDR + 1, (NOP << 4)|GNTH2};
 	uint8_t st3[2] = {ST_1_BADDR + 2, (TI2 << 4)|LNTH2};
 	uint8_t st4[2] = {ST_1_BADDR + 3, (NOP << 4)|TI4};
 	uint8_t st5[2] = {ST_1_BADDR + 4, CONT};
 
-	uint8_t sett1[2] = {SETT1, SETT1_VAL};
+	uint8_t sett1[2] = {SETT1, SETT1_VAL}; //enable interrupt generation
+	/*write configuration bytes to state machine */
 	accelWrite(thrs1_1);
 	accelWrite(thrs2_1);
 	accelWrite(mask1_a);
@@ -606,10 +599,13 @@ void accelSM1(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+	/*state machine complete interrupt handler read
+	 * to clear and set space bar
+	 */
 	uint8_t outs1[2] = {OUTS1|READ, 0};
 	uint8_t outs1_buf[2] = {0, 0};
 	accelRead(outs1, outs1_buf, 2);
-	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12); //led debug
 
 	space_pressed = 1;
 
